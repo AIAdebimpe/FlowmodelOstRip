@@ -2,12 +2,10 @@ import os
 import numpy as np
 from sortedcontainers import SortedList
 import warnings
-import pandas as pd
 from itertools import chain
 
 from Flowmodel.tPhaseD import TwoPhaseDrainage
 from Flowmodel.tPhaseImb import TwoPhaseImbibition
-from Flowmodel.utilities import Computations
 
 
 class PDrainage(TwoPhaseDrainage):
@@ -20,11 +18,9 @@ class PDrainage(TwoPhaseDrainage):
         super().__init__(obj, writeData=writeData)
         self.includeTrapping = includeTrapping
         self.cycle += 1
-        if self.writeData:
-            self.__writeHeadersD__()
-            self.__fileName__()
-        
-        
+        if self.writeData: self.__fileName__()
+        self.prevFilled = (self.fluid==1)
+
 
     def __PDrainage__(self):
         warnings.simplefilter(action='ignore', category=RuntimeWarning)
@@ -36,13 +32,19 @@ class PDrainage(TwoPhaseDrainage):
 
         while (self.PcTarget+1.0e-32 > self.capPresMax) & (
                 self.satW > self.SwTarget):
+            
             self.oldSatW = self.satW
             self.invInsideBox = 0
-            self.cntT, self.cntP = 0, 0
-            while (self.invInsideBox < self.fillTarget) & (
-                len(self.ElemToFill) != 0) & (
-                    self.PcD[self.ElemToFill[0]] <= self.PcTarget):
-                self.popUpdateOilInj()
+            self.cnt = 0
+            try:
+                while (self.invInsideBox < self.fillTarget) & (
+                    len(self.ElemToFill) != 0) & (
+                        self.PcD[self.ElemToFill[0]] <= self.PcTarget):
+                    
+                    self.popUpdateOilInj()
+            except IndexError:
+                break
+                
             try:
                 assert (self.PcD[self.ElemToFill[0]] > self.PcTarget) & (
                         self.capPresMax < self.PcTarget)
@@ -50,10 +52,9 @@ class PDrainage(TwoPhaseDrainage):
             except AssertionError:
                 pass
             
-            if not self.includeTrapping: self.identifyTrappedElements()
             self.__CondTP_Drainage__()
             self.satW = self.do.Saturation(self.AreaWPhase, self.AreaSPhase)
-            self.totNumFill += (self.cntP+self.cntT)
+            self.totNumFill += self.cnt
             try:
                 self.fillTarget = max(self.m_minNumFillings, int(min(
                     self.fillTarget*self.m_maxFillIncrease,
@@ -66,14 +67,15 @@ class PDrainage(TwoPhaseDrainage):
                 assert self.PcD[self.ElemToFill[0]] <= self.PcTarget
             except AssertionError:
                 break
+            except:
+                from IPython import embed; embed()
 
         try:
             assert (self.PcD[self.ElemToFill[0]] > self.PcTarget)
             self.capPresMax = self.PcTarget
-        except AssertionError:
+        except (AssertionError, IndexError):
             self.PcTarget = self.capPresMax
         
-        if not self.includeTrapping: self.identifyTrappedElements()
         self.__CondTP_Drainage__()
         self.satW = self.do.Saturation(self.AreaWPhase, self.AreaSPhase)
         self.do.computePerm()
@@ -86,100 +88,99 @@ class PDrainage(TwoPhaseDrainage):
         self.capPresMax = np.max([self.capPresMax, capPres])
 
         try:
-            assert k > self.nPores
-            ElemInd = k-self.nPores
-            if self.includeTrapping:
-                assert not self.do.isTrapped(k, 0, self.trappedW)
-                self.fluid[k] = 1
-                self.PistonPcRec[k] = self.centreEPOilInj[k]
-                ppp = np.array([self.P1array[ElemInd-1], self.P2array[
-                    ElemInd-1]])
-                pp = ppp[(self.fluid[ppp] == 0) & ~(self.trappedW[ppp])]
-                [*map(lambda i: self.do.isTrapped(i, 0, self.trappedW), pp)]
-
-                self.cntT += 1
-                self.invInsideBox += self.isinsideBox[k]
-                self.__update_PcD_ToFill__(pp)
-            else:
-                self.fluid[k] = 1
-                self.PistonPcRec[k] = self.centreEPOilInj[k]
-                ppp = np.array([self.P1array[ElemInd-1], self.P2array[
-                    ElemInd-1]])
-                pp = ppp[(self.fluid[ppp] == 0)]
-
-                self.cntT += 1
-                self.invInsideBox += self.isinsideBox[k]
-                self.__update_PcD_ToFill__(pp)
-        except AssertionError:
-            pass
-        except IndexError:
-            pass
-
-        try:
-            assert k <= self.nPores
-            if self.includeTrapping:
-                assert not self.do.isTrapped(k, 0, self.trappedW)
-                self.fluid[k] = 1
-                self.PistonPcRec[k] = self.centreEPOilInj[k]
-                thr = self.PTConData[k]+self.nPores
-                thr = thr[(self.fluid[thr] == 0) & ~(self.trappedW[thr])]
-                [*map(lambda i: self.do.isTrapped(i, 0, self.trappedW), thr)]
-
-                self.cntP += 1
-                self.invInsideBox += self.isinsideBox[k]
-                self.__update_PcD_ToFill__(thr)
+            assert not self.do.isTrapped(k, 0, self.capPresMax)
+            self.fluid[k] = 1
+            self.connNW[k] = True
+            self.PistonPcRec[k] = self.centreEPOilInj[k]
+            arr = self.elem[k].neighbours
             
-            else:
-                self.fluid[k] = 1
-                self.PistonPcRec[k] = self.centreEPOilInj[k]
-                thr = self.PTConData[k]+self.nPores
-                thr = thr[(self.fluid[thr] == 0)]
+            ar1 = arr[(self.fluid[arr]==0) & (arr>0)]
+            [*map(lambda i: self.do.isTrapped(i, 0, self.capPresMax), ar1)]
 
-                self.cntP += 1
-                self.invInsideBox += self.isinsideBox[k]
-                self.__update_PcD_ToFill__(thr)
+            ar2 = arr[(self.fluid[arr]==1)&(arr>0)&(self.prevFilled[arr])]
+            try:
+                assert ar2.size > 0
+                self.untrapNWElements(ar2)
+            except (IndexError, AssertionError):
+                pass
 
+            self.cnt += 1
+            self.invInsideBox += self.isinsideBox[k]
+            self.__update_PcD_ToFill__(ar1)
+    
+        except (AssertionError, IndexError):
+            pass
+
+
+    def untrapNWElements(self, ind):
+        idx = self.trapCluster_NW[ind]
+    
+        arr = []
+        [arr.extend(self.elementLists[(self.trapCluster_NW==i)[1:-1]]) for i in idx[idx>0]]        
+        self.trappedNW[arr] = False
+        self.connNW[arr] = True
+        self.trapCluster_NW[arr] = 0
+        self.trappedNW_Pc[arr] = 0.0
+        self.prevFilled[arr] = False
+        arr.extend(ind[idx==0])
+        arr = np.array(arr)
+        self.populateToFill(arr)
+
+
+    def populateToFill(self, arr):
+        condlist = np.zeros(self.totElements, dtype='bool')
+        condlist[arr[self.fluid[arr]==0]] = True
+        nPores = self.nPores
+
+        Notdone = np.ones(self.totElements, dtype='bool')
+        Notdone[condlist] = False
+        Notdone[[-1,0]] = False
+
+        arr = arr[self.fluid[arr]==1]
+        arrP = arr[arr<=nPores]   #pores
+        arr = list(arr[arr>nPores]-nPores)  #throats
+        try:
+            assert arrP.size>0
+            Notdone[arrP] = False
+            self.prevFilled[arrP] = False
+            arrT = self.PTConnections[arrP]
+            condlist[arrT[(self.fluid[arrT]==0)&(arrT>0)]] = True
+            arr.extend(arrT[(self.fluid[arrT]==1)&(arrT>0)]-nPores)
         except AssertionError:
             pass
-        except IndexError:
-            pass
-
-    def identifyTrappedElements(self):
-        Notdone = (self.fluid==1)
-        tin = list(self.conTToIn[Notdone[self.conTToIn+self.nPores]])
-        tout = self.conTToOut[Notdone[self.conTToOut+self.nPores]]
-        self.trappedNW[:] = True
-        conn = np.zeros(self.totElements, dtype='bool')
 
         while True:
             try:
-                conn[:] = False
-                tt = tin.pop(0)
+                tt = arr.pop(0)
                 Notdone[tt+self.nPores] = False
-                conn[tt+self.nPores] = True
+                self.prevFilled[tt+self.nPores] = False
                 while True:
                     try:
                         pp = np.array([self.P1array[tt-1], self.P2array[tt-1]])
                         pp = pp[Notdone[pp]]
                         Notdone[pp] = False
-                        conn[pp] = True
+                        self.prevFilled[pp] = False
+                        condlist[pp[self.fluid[pp]==0]] = True
+                        pp = pp[self.fluid[pp]==1]
 
                         tt = np.array([*chain(*self.PTConData[pp])])
                         tt = tt[Notdone[tt+self.nPores]]
                         Notdone[tt+self.nPores] = False
-                        conn[tt+self.nPores] = True
+                        self.prevFilled[tt+self.nPores] = False
+                        condlist[tt[self.fluid[tt+self.nPores]==0]+self.nPores] = True
+                        tt = tt[self.fluid[tt+self.nPores]==1]
                     except IndexError:
                         try:
-                            tin = np.array(tin)
-                            tin = list(tin[Notdone[tin]])
+                            arr = np.array(arr)
+                            arr = list(arr[Notdone[arr]])
                         except IndexError:
-                            tin=[]
+                            arr=[]
                         break
-                if any(conn[tout]):
-                    self.trappedNW[conn] = False
-                
             except IndexError:
                 break
+        ElemToFill = self.elementLists[condlist[1:-1]]
+        self.__update_PcD_ToFill__(ElemToFill)
+
 
     def __writeHeadersD__(self):
         self.resultD_str="======================================================================\n"
@@ -234,50 +235,70 @@ class SecDrainage(PDrainage):
         return obj
     
     def __init__(self, obj, writeData=False, includeTrapping=True):
-        self.do = Computations(self)
-        #from IPython import embed; embed()
         self.fluid[[-1, 0]] = 1, 0  
-        self.contactAng, self.thetaRecAng, self.thetaAdvAng = self.prop_drainage.values()
-        self.cornExistsTr[:] = False
-        self.cornExistsSq[:] = False
-        self.initedTr[:] = False
-        self.initedSq[:] = False
         self.includeTrapping = includeTrapping
         
         self.maxPc = self.capPresMax
-        self.capPresMax = 0        
+        self.capPresMax = self.capPresMin
+        self.is_oil_inj = True
+        self.contactAng, self.thetaRecAng, self.thetaAdvAng = self.prop_drainage.values()
+        self.trapped = self.trappedW
+        self.trappedPc = self.trappedW_Pc
+        self.trapClust = self.trapCluster_W
         
+        self.do.__initCornerApex__()
+        self.Fd_Tr = self.do.__computeFd__(self.elemTriangle, self.halfAnglesTr)
+        self.Fd_Sq = self.do.__computeFd__(self.elemSquare, self.halfAnglesSq)
+        self.__computePistonPc__()
+        self.centreEPOilInj[self.elementLists] = 2*self.sigma*np.cos(
+           self.thetaRecAng[self.elementLists])/self.Rarray[self.elementLists]
+        self.PcD[:] = self.PistonPcRec
+        self.PistonPcRec[self.fluid==1] = self.centreEPOilInj[self.fluid==1]
         self.ElemToFill = SortedList(key=lambda i: self.LookupList(i))
-        print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
-        condlist = np.zeros(self.totElements-2, dtype='bool')
-        condlist[(self.fluid[1:-1]==0)] = np.array(
-            [*map(lambda i: self.func1(i), self.elementLists[(self.fluid[1:-1]==0)])])
-        self.ElemToFill.update(self.elementLists[condlist])
-        #from IPython import embed; embed()
-        self.NinElemList = np.ones(self.totElements, dtype='bool')
-        self.NinElemList[self.elementLists[condlist]] = False
+        self.NinElemList[:] = True
+        self.prevFilled = (self.fluid==1)
+        self.populateToFill(self.conTToIn+self.nPores)  
 
-
-        self._cornArea = self.AreaWPhase.copy()
-        self._centerArea = self.AreaNWPhase.copy()
-        self._cornCond = self.gwSPhase.copy()
-        self._centerCond = self.gnwSPhase.copy()
+        self._cornArea = self._areaWP.copy()
+        self._centerArea = self._areaNWP.copy()
+        self._cornCond = self._condWP.copy()
+        self._centerCond = self._condNWP.copy()
 
         self.cycle += 1
         self.writeData = writeData
-        if self.writeData:
-            self.__fileName__()
-            self.__writeHeadersD__()
-        else: self.resultD_str = ""
-
+        if self.writeData: self.__fileName__()
+        self.primary = False
+        #from IPython import embed; embed()
     
-    def func1(self, i):
-        if i<=self.nPores:
-            arr = self.PTConData[i]+self.nPores
-            return any(self.fluid[arr]==1)
-        else:
-            arr = np.array([self.P1array[i-self.nPores], self.P2array[i-self.nPores]])
-            return any(self.fluid[arr]==1)
+    
+    def __writeHeadersD__(self):
+        self.resultD_str="======================================================================\n"
+        self.resultD_str+="# Fluid properties:\nsigma (mN/m)  \tmu_w (cP)  \tmu_nw (cP)\n"
+        self.resultD_str+="# \t%.6g\t\t%.6g\t\t%.6g" % (
+            self.sigma*1000, self.muw*1000, self.munw*1000, )
+        self.resultD_str+="\n# calcBox: \t %.6g \t %.6g" % (
+            self.calcBox[0], self.calcBox[1], )
+        self.resultD_str+="\n# Wettability:"
+        self.resultD_str+="\n# model \tmintheta \tmaxtheta \tdelta \teta \tdistmodel"
+        self.resultD_str+="\n# %.6g\t\t%.6g\t\t%.6g\t\t%.6g\t\t%.6g" % (
+            self.wettClass, round(self.minthetai*180/np.pi,3), round(self.maxthetai*180/np.pi,3), self.delta, self.eta,) 
+        self.resultD_str+=self.distModel
+        self.resultD_str+="\nmintheta \tmaxtheta \tmean  \tstd"
+        self.resultD_str+="\n# %3.6g\t\t%3.6g\t\t%3.6g\t\t%3.6g" % (
+            round(self.contactAng.min()*180/np.pi,3), round(self.contactAng.max()*180/np.pi,3), 
+            round(self.contactAng.mean()*180/np.pi,3), round(self.contactAng.std()*180/np.pi,3))
+        
+        self.resultD_str+="\nPorosity:  %3.6g" % (self.porosity)
+        self.resultD_str+="\nMaximum pore connection:  %3.6g" % (self.maxPoreCon)
+        self.resultD_str+="\nAverage pore-to-pore distance:  %3.6g" % (self.avgP2Pdist)
+        self.resultD_str+="\nMean pore radius:  %3.6g" % (self.Rarray[self.poreList].mean())
+        self.resultD_str+="\nAbsolute permeability:  %3.6g" % (self.absPerm)
+        
+        self.resultD_str+="\n======================================================================"
+        self.resultD_str+="\n# Sw\t qW(m3/s)\t krw\t qNW(m3/s)\t krnw\t Pc\t Invasions"
+
+        self.totNumFill = 0
+        self.resultD_str = self.do.writeResult(self.resultD_str, self.capPresMin)
 
         
             
@@ -290,18 +311,18 @@ class PImbibition(TwoPhaseImbibition):
         super().__init__(obj, writeData=writeData)
         self.writeData = writeData
         self.includeTrapping = includeTrapping
-        if self.writeData:
-            self.__writeHeadersI__()
-            self.__fileName__()
+        if self.writeData: self.__fileName__()
+        self.primary = True
+
 
     def __PImbibition__(self):
         self.totNumFill = 0
-    
+
         while (self.PcTarget-1.0e-32 < self.capPresMin) & (
                 self.satW <= self.SwTarget):
             self.oldSatW = self.satW
             self.invInsideBox = 0
-            self.cntT, self.cntP = 0, 0
+            self.cnt = 0
             try:
                 while (self.invInsideBox < self.fillTarget) & (
                     len(self.ElemToFill) != 0) & (
@@ -310,9 +331,10 @@ class PImbibition(TwoPhaseImbibition):
                     self.popUpdateWaterInj()
                     try:
                         assert self.satW >= 0.5
-                        if not self.ensureConnectivity():
-                            self.filling = False
-                            break
+                        assert not self.isNWConnected()
+                        self.filling = False
+                        self.PcTarget = self.capPresMin
+                        break
                     except AssertionError:
                         pass
                         
@@ -326,16 +348,14 @@ class PImbibition(TwoPhaseImbibition):
 
             self.__CondTPImbibition__()
             self.satW = self.do.Saturation(self.AreaWPhase, self.AreaSPhase)
-            self.totNumFill += (self.cntP+self.cntT)
+            self.totNumFill += self.cnt
 
             try:
                 assert self.PcI[self.ElemToFill[0]] >= self.PcTarget
+                assert self.filling
             except (AssertionError, IndexError):
                 break
 
-            if not self.filling:
-                break
-            
         try:
             assert (self.PcI[self.ElemToFill[0]] < self.PcTarget) & (
                 self.capPresMin > self.PcTarget)
@@ -351,12 +371,30 @@ class PImbibition(TwoPhaseImbibition):
         self.resultI_str = self.do.writeResult(self.resultI_str, self.capPresMin)
 
 
-    def ensureConnectivity(self):
-        self.gNWPhase[self.fluid==0]=0.0
-        gnwL = self.do.computegL(self.gNWPhase)
-        qNW = self.do.computeFlowrate(gnwL)
-        return (qNW!=0.0)
-    
+    def isNWConnected(self):
+        Notdone = (self.fluid==1)
+        try:
+            assert (Notdone & self.isOnInletBdr).sum()>0
+            assert (Notdone & self.isOnOutletBdr).sum()>0
+        except AssertionError:
+            return False
+        
+        arrlist = SortedList(key=lambda i: self.distToExit[i])
+        arrlist.update(self.elementLists[(Notdone & self.isOnInletBdr)[1:-1]])
+        while True:
+            try:
+                i = arrlist.pop(0)
+                Notdone[i] = False
+                arr = self.elem[i].neighbours
+                arr = arr[Notdone[arr]]
+                assert self.isOnOutletBdr[arr].sum()==0
+                Notdone[arr] = False
+                arrlist.update(arr)
+            except AssertionError:
+                return True
+            except IndexError:
+                return False
+
 
     def popUpdateWaterInj(self):
         k = self.ElemToFill.pop(0)
@@ -364,87 +402,25 @@ class PImbibition(TwoPhaseImbibition):
         self.capPresMin = np.min([self.capPresMin, capPres])
 
         try:
-            assert k > self.nPores
-            ElemInd = k-self.nPores
-            if self.includeTrapping:
-                assert not self.do.isTrapped(k, 1, self.trappedNW)
+            assert not self.do.isTrapped(k, 1, self.capPresMin)
+            self.fluid[k] = 0
+            self.fillmech[k] = 1*(self.PistonPcAdv[k] == capPres)+3*(
+                self.snapoffPc[k] == capPres)
+            self.cnt += 1
+            self.invInsideBox += self.isinsideBox[k]
 
-                #print(k, capPres, self.capPresMin)
-                self.fluid[k] = 0
-                self.fillmech[k] = 1*(self.PistonPcAdv[k] == capPres)+3*(
-                    self.snapoffPc[k] == capPres)
-                self.cntT += 1
-                self.invInsideBox += self.isinsideBox[k]
-
-                ppp = np.array([self.P1array[ElemInd-1], self.P2array[
-                    ElemInd-1]])
-                ppp = ppp[(ppp > 0)]
-                pp = ppp[(self.fluid[ppp] == 1) & ~(self.trappedNW[ppp])]
-                
-                # update Pc and the filling list
-                assert pp.size > 0
-                [*map(lambda i: self.do.isTrapped(i, 1, self.trappedNW), pp)]
-                self.__computePc__(self.capPresMin, pp)
-
-            else:
-                self.fluid[k] = 0
-                self.fillmech[k] = 1*(self.PistonPcAdv[k] == capPres)+3*(
-                    self.snapoffPc[k] == capPres)
-                self.cntT += 1
-                self.invInsideBox += self.isinsideBox[k]
-
-                ppp = np.array([self.P1array[ElemInd-1], self.P2array[
-                    ElemInd-1]])
-                pp = ppp[(ppp > 0) & (self.fluid[ppp] == 1)]
-                
-                # update Pc and the filling list
-                assert pp.size > 0
-                self.__computePc__(self.capPresMin, pp)
+            arr = self.elem[k].neighbours
+            #arr = arr[(self.fluid[arr] == 1)&(~self.trappedNW[arr])&(arr>0)]
+            arr = arr[(self.fluid[arr] == 1)&(arr>0)]
             
-    
-        except AssertionError:
-            pass
-
-        try:
-            assert k <= self.nPores
-            ElemInd = k
-            if self.includeTrapping:
-                assert not self.do.isTrapped(k, 1, self.trappedNW)
-            
-                #print(k, capPres, self.capPresMin)
-                self.fluid[k] = 0
-                self.fillmech[k] = 1*(self.PistonPcAdv[k] == capPres) + 2*(
-                    self.porebodyPc[k] == capPres) + 3*(
-                        self.snapoffPc[k] == capPres)
-                self.cntP += 1
-                self.invInsideBox += self.isinsideBox[k]
-
-                tt = self.PTConData[ElemInd]+self.nPores
-                tt = tt[(self.fluid[tt] == 1) & ~(self.trappedNW[tt])]
-
-                # update Pc and the filling list
-                assert tt.size > 0
-                [*map(lambda i: self.do.isTrapped(i, 1, self.trappedNW), tt)]
-                self.__computePc__(self.capPresMin, tt)
-
-            else:
-                self.fluid[k] = 0
-                self.fillmech[k] = 1*(self.PistonPcAdv[k] == capPres) + 2*(
-                    self.porebodyPc[k] == capPres) + 3*(
-                        self.snapoffPc[k] == capPres)
-                self.cntP += 1
-                self.invInsideBox += self.isinsideBox[k]
-
-                tt = self.PTConData[ElemInd]+self.nPores
-                tt = tt[(self.fluid[tt] == 1)]
-
-                # update Pc and the filling list
-                assert tt.size > 0
-                self.__computePc__(self.capPresMin, tt)
+            # update Pc and the filling list
+            [*map(lambda i: self.do.isTrapped(i, 1, self.capPresMin), arr)]
+            self.__computePc__(self.capPresMin, arr)
 
         except AssertionError:
             pass
 
+        
     
     def __writeHeadersI__(self):
         self.resultI_str="======================================================================\n"
@@ -471,6 +447,9 @@ class PImbibition(TwoPhaseImbibition):
         
         self.resultI_str+="\n======================================================================"
         self.resultI_str+="\n# Sw\t qW(m3/s)\t krw\t qNW(m3/s)\t krnw\t Pc\t Invasions"
+
+        self.totNumFill = 0
+        self.resultI_str = self.do.writeResult(self.resultI_str, self.capPresMax)
 
 
     def __fileName__(self):
@@ -499,18 +478,17 @@ class SecImbibition(PImbibition):
         obj.__class__ = SecImbibition
         return obj
     
-    def __init__(self, obj, writeData=False, includeTrapping=True):
-        self.do = Computations(self)
-    
+    def __init__(self, obj, writeData=False, includeTrapping=True):    
         self.fluid[[-1, 0]] = 0, 1  
-        
-        self.is_oil_inj = False
-        self._updateCornerApex_()
         self.ElemToFill = SortedList(key=lambda i: self.LookupList(i))
         self.capPresMin = self.maxPc
         
         self.contactAng, self.thetaRecAng, self.thetaAdvAng = self.prop_imbibition.values()
-        self.__initCornerApex__()
+        self.is_oil_inj = False
+        self.trapped = self.trappedNW
+        self.trappedPc = self.trappedNW_Pc
+        self.trapClust = self.trapCluster_NW
+        self.do.__initCornerApex__()
         self.__computePistonPc__()
         self.__computePc__(self.maxPc, self.elementLists, False)
 
@@ -520,10 +498,8 @@ class SecImbibition(PImbibition):
         self._condNWP = self._centerCond.copy()
 
         self.writeData = writeData
-        if self.writeData:
-            self.__writeHeadersI__()
-            self.__fileName__()
-        else: self.resultI_str = "" 
-
+        if self.writeData: self.__fileName__()
+        self.primary = False
+        
 
 

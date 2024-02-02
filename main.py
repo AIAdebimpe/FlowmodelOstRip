@@ -3,11 +3,10 @@ import sys
 import os
 import pandas as pd
 
-sys.path.append("../Flowmodel")
+sys.path.append("./Flowmodel")
 from Flowmodel.inputData import InputData
 from Flowmodel.network import Network
 from Flowmodel.sPhase import SinglePhase
-from Hysteresis import PDrainage, PImbibition, SecDrainage, SecImbibition
 from plot import makePlot
 
 
@@ -41,7 +40,12 @@ def main():
         imbibePlot = False
         probablePlot = False
         writeData = True
-        includeTrapping = False
+        includeTrapping = True
+
+        if includeTrapping:
+            from Hysteresis import PDrainage, PImbibition, SecDrainage, SecImbibition
+        else:
+            from OstRipening import PDrainage, PImbibition, SecDrainage, SecImbibition
 
         primaryD, primaryI = True, True
 
@@ -85,6 +89,7 @@ def main():
     
                 else:
                     # Imbibition process
+                    netsim.is_oil_inj = False
                     netsim.minPc = Pc
                     if primaryI:
                         (netsim.wettClass, netsim.minthetai, netsim.maxthetai, netsim.delta,

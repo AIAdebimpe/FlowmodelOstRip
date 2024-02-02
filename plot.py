@@ -36,7 +36,7 @@ class makePlot():
         
         if self.drain:
             drainageBank(self)
-        elif self.imbibe:
+        if self.imbibe:
             imbibitionBank(self)
             
     def pcSw(self):
@@ -45,12 +45,13 @@ class makePlot():
         
         leg = []
         ind = 0 
-          
+
         for val1 in self.results.keys():
             for val2 in self.results[val1].keys():
                 res = self.results[val1][val2]
+                print(res)
                 plt.plot(res['satW'], res['capPres']/1000, '--v',
-                         color=self.colorlist[ind], linewidth=1)
+                         color=self.colorlist[ind], linewidth=1.5)
                 #from IPython import embed; embed()
                 leg.append(val1+'_'+val2)
                 ind += 1
@@ -64,24 +65,24 @@ class makePlot():
         plt.close()
 
     def pcSw1(self):
-        if self.drain:
-            filename = self.img_dir+'Pc_vs_Sw_Drainage_{}_{}.png'.format(
-                self.title, self.num)
-        elif self.imbibe:
-            filename = self.img_dir+'Pc_vs_Sw_Imbibition_{}_{}.png'.format(
-                self.title, self.num)
-        elif self.hysteresis:
-            filename = self.img_dir+'Pc_vs_Sw_hysteresis_{}_{}.png'.format(
-                self.title, self.num)
+        filename = self.img_dir+'Pc_vs_Sw_hysteresis_{}_{}_{}_wld.png'.format(
+            self.title, self.label, self.num)
         
         leg = []
-        ind = 0        
-                    
-        for val in self.results.keys():
-            res = self.results[val]
-            print(res)
-            if val == 'Literature data':
-                res = res['pcSw']
+        ind = 0
+
+        for val1 in self.results.keys():
+            if val1 != 'Literature data':
+                for val2 in self.results[val1].keys():
+                    res = self.results[val1][val2]
+                    print(res)
+                    plt.plot(res['satW'], res['capPres']/1000, '--v',
+                            color=self.colorlist[ind], linewidth=1.5)
+                    #from IPython import embed; embed()
+                    leg.append(val1+'_'+val2)
+                    ind += 1
+            else:
+                res = self.results[val1]['pcSwDra']
                 res1 = res.loc[res['source'] == 'MICP']
                 res2 = res.loc[res['source'] != 'MICP']
                 if not res1.empty:
@@ -91,15 +92,27 @@ class makePlot():
                 if not res2.empty:
                     plt.scatter(res2['satW'], res2['capPres']/1000, s=30, marker='s',
                                 facecolors='none', edgecolors='k')
-                    leg.append(val)
-            elif val == 'model':
-                plt.plot(res['satW'], res['capPres']/1000, '-r', linewidth=2)
-                leg.append(val)
-            else:
+                    #from IPython import embed; embed()
+                    leg.append('Raeesi et al drainage')
+
+                res = self.results[val1]['pcSwImb']
+                res1 = res.loc[res['source'] == 'Raeesi']
+                res2 = res.loc[res['source'] == 'Lin']
+                if not res1.empty:
+                    plt.scatter(res1['satW'], res1['capPres']/1000, s=30, marker='s',
+                                facecolors='none', edgecolors='b')
+                    leg.append('Raeesi et al imbibition')
+                if not res2.empty:
+                    plt.scatter(res2['satW'], res2['capPres']/1000, s=30, marker='d',
+                                facecolors='none', edgecolors='r')
+                    #from IPython import embed; embed()
+                    leg.append('Lin et al')
+                
+            '''else:
                 plt.plot(res['satW'], res['capPres']/1000, linestyle=self.linelist[ind], 
                          color=self.colorlist[ind], linewidth=2)
                 leg.append(val)
-                ind += 1
+                ind += 1'''
             
         plt.ylabel('Capillary Pressure(kPa)')
         plt.legend(leg)
@@ -109,42 +122,73 @@ class makePlot():
         plt.savefig(filename, dpi=500)
         plt.close()
 
+    
     def krSw(self):
-        if self.drain:
-            filename = self.img_dir+'kr_vs_Sw_Drainage_{}_{}.jpg'.format(
-                self.title, self.num)
-        else:
-            filename = self.img_dir+'kr_vs_Sw_Imbibition_{}_{}.jpg'.format(
-                self.title, self.num)
+        filename = self.img_dir+'kr_vs_Sw_hysteresis_{}_{}_{}.png'.format(
+            self.title, self.label, self.num)
         
         leg = []
         j = 0
-        for val in self.results.keys():
-            res = self.results[val]
-            if val == 'Literature data':
-                res = res['krSw']
+
+        for val1 in self.results.keys():
+            for val2 in self.results[val1].keys():
+                res = self.results[val1][val2]
                 print(res)
+                plt.plot(res['satW'], res['krw'], '--v',
+                        color=self.colorlist[j], linewidth=1.5)
+                plt.plot(res['satW'], res['krnw'], '--v',
+                        color=self.colorlist[j], linewidth=1.5, label = '_nolegend_')
+                #leg.append(val)
+                #from IPython import embed; embed()
+                leg.append(val1+'_'+val2)
+                j += 1
+            
+        plt.ylabel('Relative Permeability')
+        plt.legend(labels=leg)
+        plt.xlabel('Sw')
+        plt.xlim(0, 1.0)
+        plt.ylim(0, 1.0)
+        plt.savefig(filename, dpi=500)
+        plt.close()
+
+    def krSw1(self):
+        filename = self.img_dir+'kr_vs_Sw_hysteresis_{}_{}_{}_wld.png'.format(
+            self.title, self.label, self.num)
+        
+        leg = []
+        j = 0
+
+        for val1 in self.results.keys():
+            if val1 != 'Literature data':
+                for val2 in self.results[val1].keys():
+                    res = self.results[val1][val2]
+                    print(res)
+                    plt.plot(res['satW'], res['krw'], '--v',
+                            color=self.colorlist[j], linewidth=1.5)
+                    plt.plot(res['satW'], res['krnw'], '--v',
+                            color=self.colorlist[j], linewidth=1.5, label = '_nolegend_')
+                    #leg.append(val)
+                    #from IPython import embed; embed()
+                    leg.append(val1+'_'+val2)
+                    j += 1
+
+            else:
+                res = self.results[val1]['krSwDra']        
                 plt.scatter(res['satW'], res['krw'], s=30, marker='s',
                     facecolors='none', edgecolors='k')
-                leg.append('Literature data (krw)')
+                leg.append('drainage Lit. data (krw)')
                 plt.scatter(res['satW'], res['krnw'], s=30, marker='o',
-                            facecolors='none', edgecolors='b')
-                leg.append('Literature data (krnw)')
+                            facecolors='none', edgecolors='k')
+                leg.append('drainage Lit. data (krnw)')
+
+                res = self.results[val1]['krSwImb']        
+                plt.scatter(res['satW'], res['krw'], s=30, marker='s',
+                    facecolors='none', edgecolors='r')
+                leg.append('imbibition Lit. data (krw)')
+                plt.scatter(res['satW'], res['krnw'], s=30, marker='o',
+                            facecolors='none', edgecolors='r')
+                leg.append('imbibition Lit. data (krnw)')
                 
-            elif val == 'model':
-                plt.plot(res['satW'], res['krw'], linestyle='-',
-                        color='r', linewidth=2)
-                plt.plot(res['satW'], res['krnw'], linestyle='-',
-                        color='r', linewidth=2, label = '_nolegend_')
-                leg.append(val)
-            
-            else:
-                plt.plot(res['satW'], res['krw'], linestyle=self.linelist[j], linewidth=2,
-                        color=self.colorlist[j])
-                plt.plot(res['satW'], res['krnw'], linestyle=self.linelist[j], linewidth=2,
-                        color=self.colorlist[j], label = '_nolegend_')
-                j += 1
-                leg.append(val)
             
         plt.ylabel('Relative Permeability')
         plt.legend(labels=leg)
@@ -167,23 +211,23 @@ class drainageBank:
         return getattr(self.obj, name)
 
     def __compWithLitData__(self):
-        self.results['Literature data'] = {}
+        self.results['Literature data'] = self.results.get('Literature data', {})
         
-        self.results['Literature data']['pcSw'] = pd.read_csv(
+        self.results['Literature data']['pcSwDra'] = pd.read_csv(
             './results_csv/Exp_Results_Bentheimer_Drainage_Pc_Sw.csv',
             names=['source', 'satW', 'Pc', 'capPres'], sep=',',
             skiprows=1, index_col=False)
         
-        self.results['Literature data']['krSw'] = pd.read_csv(
+        self.results['Literature data']['krSwDra'] = pd.read_csv(
             './results_csv/Exp_Results_Bentheimer_Drainage_kr_Sw.csv',
             names=['satW', 'krw', 'krnw'], sep=',',
             skiprows=1, index_col=False)
         
         
-        self.results['Valvatne et al.'] = pd.read_csv(
+        '''self.results['Valvatne et al.'] = pd.read_csv(
             './results_csv/pnflow_Bentheimer_Drainage_010725.csv',
             names=['satW', 'capPres', 'krw', 'krnw', 'RI'], sep=',',
-            skiprows=1, index_col=False)
+            skiprows=1, index_col=False)'''
         
     def __compWithPrevData__(self):
         if self.include:
@@ -218,20 +262,21 @@ class imbibitionBank():
         return getattr(self.obj, name)
         
     def __compWithLitData__(self):
-        self.results['Literature data'] = {}
-        self.results['Literature data']['pcSw'] = pd.read_csv(
+        self.results['Literature data'] = self.results.get('Literature data', {})
+        
+        self.results['Literature data']['pcSwImb'] = pd.read_csv(
             './results_csv/Exp_Results_Bentheimer_Imbibition_Pc_Sw.csv',
             names=['source', 'satW', 'Pc', 'capPres'], sep=',',
             skiprows=1, index_col=False)
-        self.results['Literature data']['krSw'] = pd.read_csv(
+        self.results['Literature data']['krSwImb'] = pd.read_csv(
             './results_csv/Exp_Results_Bentheimer_Imbibition_kr_Sw.csv',
             names=['satW', 'krw', 'krnw'], sep=',',
             skiprows=1, index_col=False)
         
-        self.results['Valvatne et al.'] = pd.read_csv(
+        '''self.results['Valvatne et al.'] = pd.read_csv(
             './results_csv/pnflow_Bentheimer_Imbibition_010725.csv', names=[
                 'satW', 'capPres', 'krw', 'krnw', 'RI'], sep=',', skiprows=1,
-            index_col=False)
+            index_col=False)'''
             
     def __compWithPrevData__(self):
         if self.include:
